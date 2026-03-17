@@ -135,7 +135,7 @@ def main():
 
     if unresolved:
         st.info("Some columns contain embedded numbers (e.g. \"5 Pack\", \"8 MILLIGRAM\"). Tell us how to use them.")
-        with st.expander("Configure column roles", expanded=True):
+        with st.expander("Configure column roles", expanded=False):
             wizard_roles = {}
             st.markdown("**store_id** — e.g. STORE-001, STORE-002, STORE-003")
             store_id_role = st.radio(
