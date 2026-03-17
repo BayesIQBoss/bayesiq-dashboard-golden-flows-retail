@@ -261,174 +261,102 @@ def main():
     with tabs[0]:
         st.header("Business Metrics")
 
-        st.subheader("Return Rate")
+        _compact = dict(height=260, margin=dict(l=40, r=20, t=40, b=30),
+                        title_font_size=13,
+                        legend=dict(orientation="h", y=-0.25, font=dict(size=12)))
 
-        _dim_options_return_rate = ['department', 'brand', 'channel', 'product_name', 'quantity', 'units_sold', 'units_received', 'return_flag', 'exchange_flag', 'sell_through_flag', 'premium_flag']
-        _sel_dim_return_rate = st.selectbox(
-            "Break down by", ["(none)"] + _dim_options_return_rate,
-            key="dim_picker_return_rate")
+        _dim_options = ["Topline", "category", "channel", "region", "store_type"]
+        _sel_dim = st.radio("Dimension", _dim_options, index=0, horizontal=True, key="dim_radio")
+        _dim_col = None if _sel_dim == "Topline" else _sel_dim
 
-        num_df = df[(df["return_flag"] == 1)]
-        den_df = df[(df["transaction_flag"] == 1)]
-        den_grouped = den_df.groupby(den_df["transaction_date"].dt.to_period(_period)).size()
-        num_grouped = num_df.groupby(num_df["transaction_date"].dt.to_period(_period)).size().reindex(den_grouped.index, fill_value=0)
-        ratio_df = (num_grouped / den_grouped).fillna(0).reset_index()
-        ratio_df.columns = ["period", "return_rate"]
-        ratio_df["period"] = ratio_df["period"].astype(str)
-
-        if ratio_df.empty:
-            st.info("No data for Return Rate in this period.")
-        else:
-            fig = px.line(ratio_df, x="period", y="return_rate", title="Return Rate Over Time", markers=True)
-            st.plotly_chart(fig, use_container_width=True)
-
-        if _sel_dim_return_rate != "(none)":
-            _dim_col = _sel_dim_return_rate
-            _dim_label = _dim_col.replace("_", " ").title()
-            if _dim_col in num_df.columns:
+        # Helper for ratio metrics in this vertical
+        def _ratio_chart(num_df, den_df, metric_name, title):
+            if _dim_col and _dim_col in num_df.columns:
                 num_dim = num_df.groupby([num_df["transaction_date"].dt.to_period(_period), _dim_col]).size().unstack(fill_value=0)
                 den_dim = den_df.groupby([den_df["transaction_date"].dt.to_period(_period), _dim_col]).size().unstack(fill_value=0)
                 ratio_dim = (num_dim / den_dim).stack().reset_index()
-                ratio_dim.columns = ["period", _dim_col, "return_rate"]
+                ratio_dim.columns = ["period", _dim_col, metric_name]
                 ratio_dim["period"] = ratio_dim["period"].astype(str)
-                fig2 = px.line(ratio_dim, x="period", y="return_rate", color=_dim_col, title=f"Return Rate by {_dim_label}", markers=True)
-                st.plotly_chart(fig2, use_container_width=True)
+                if ratio_dim.empty:
+                    st.info(f"No data for {title}.")
+                else:
+                    fig = px.line(ratio_dim, x="period", y=metric_name, color=_dim_col, title=title, markers=True)
+                    fig.update_layout(**_compact)
+                    st.plotly_chart(fig, use_container_width=True)
+            else:
+                den_grouped = den_df.groupby(den_df["transaction_date"].dt.to_period(_period)).size()
+                num_grouped = num_df.groupby(num_df["transaction_date"].dt.to_period(_period)).size().reindex(den_grouped.index, fill_value=0)
+                ratio_result = (num_grouped / den_grouped).fillna(0).reset_index()
+                ratio_result.columns = ["period", metric_name]
+                ratio_result["period"] = ratio_result["period"].astype(str)
+                if ratio_result.empty:
+                    st.info(f"No data for {title}.")
+                else:
+                    fig = px.line(ratio_result, x="period", y=metric_name, title=title, markers=True)
+                    fig.update_layout(**_compact)
+                    st.plotly_chart(fig, use_container_width=True)
 
-        st.divider()
+        # --- Row 1 ---
+        r1c1, r1c2, r1c3 = st.columns(3)
 
-        st.subheader("Sell Through")
+        with r1c1:
+            _ratio_chart(df[(df["return_flag"] == 1)], df[(df["transaction_flag"] == 1)], "return_rate", "Return Rate (%)")
 
-        _dim_options_sell_through = ['department', 'brand', 'channel', 'product_name', 'quantity', 'units_sold', 'units_received', 'return_flag', 'exchange_flag', 'sell_through_flag', 'premium_flag']
-        _sel_dim_sell_through = st.selectbox(
-            "Break down by", ["(none)"] + _dim_options_sell_through,
-            key="dim_picker_sell_through")
+        with r1c2:
+            _ratio_chart(df[(df["sell_through_flag"] == 1)], df[(df["transaction_flag"] == 1)], "sell_through", "Sell Through (%)")
 
-        num_df = df[(df["sell_through_flag"] == 1)]
-        den_df = df[(df["transaction_flag"] == 1)]
-        den_grouped = den_df.groupby(den_df["transaction_date"].dt.to_period(_period)).size()
-        num_grouped = num_df.groupby(num_df["transaction_date"].dt.to_period(_period)).size().reindex(den_grouped.index, fill_value=0)
-        ratio_df = (num_grouped / den_grouped).fillna(0).reset_index()
-        ratio_df.columns = ["period", "sell_through"]
-        ratio_df["period"] = ratio_df["period"].astype(str)
+        with r1c3:
+            _ratio_chart(df[(df["premium_flag"] == 1)], df[(df["transaction_flag"] == 1)], "premium_mix", "Premium Mix (%)")
 
-        if ratio_df.empty:
-            st.info("No data for Sell Through in this period.")
-        else:
-            fig = px.line(ratio_df, x="period", y="sell_through", title="Sell Through Over Time", markers=True)
-            st.plotly_chart(fig, use_container_width=True)
+        # --- Row 2 ---
+        r2c1, r2c2, r2c3 = st.columns(3)
 
-        if _sel_dim_sell_through != "(none)":
-            _dim_col = _sel_dim_sell_through
-            _dim_label = _dim_col.replace("_", " ").title()
-            if _dim_col in num_df.columns:
-                num_dim = num_df.groupby([num_df["transaction_date"].dt.to_period(_period), _dim_col]).size().unstack(fill_value=0)
-                den_dim = den_df.groupby([den_df["transaction_date"].dt.to_period(_period), _dim_col]).size().unstack(fill_value=0)
-                ratio_dim = (num_dim / den_dim).stack().reset_index()
-                ratio_dim.columns = ["period", _dim_col, "sell_through"]
-                ratio_dim["period"] = ratio_dim["period"].astype(str)
-                fig2 = px.line(ratio_dim, x="period", y="sell_through", color=_dim_col, title=f"Sell Through by {_dim_label}", markers=True)
-                st.plotly_chart(fig2, use_container_width=True)
+        with r2c1:
+            metric_df = df
+            if "revenue" not in metric_df.columns:
+                st.warning("Column \"revenue\" not found — skipping Store Performance.")
+            else:
+                if _dim_col and _dim_col in metric_df.columns:
+                    grouped = metric_df.groupby([metric_df["transaction_date"].dt.to_period(_period), _dim_col])["revenue"].sum().reset_index()
+                    grouped.columns = ["period", _dim_col, "store_performance"]
+                    grouped["period"] = grouped["period"].astype(str)
+                    fig = px.bar(grouped, x="period", y="store_performance", color=_dim_col, title="Store Performance ($)", barmode="group")
+                else:
+                    grouped = metric_df.groupby(metric_df["transaction_date"].dt.to_period(_period))["revenue"].sum().reset_index()
+                    grouped.columns = ["period", "store_performance"]
+                    grouped["period"] = grouped["period"].astype(str)
+                    fig = px.bar(grouped, x="period", y="store_performance", title="Store Performance ($)")
+                fig.update_layout(**_compact)
+                st.plotly_chart(fig, use_container_width=True)
 
-        st.divider()
+        with r2c2:
+            metric_df = df
+            if "margin" not in metric_df.columns:
+                st.warning("Column \"margin\" not found — skipping Revenue Integrity.")
+            else:
+                if _dim_col and _dim_col in metric_df.columns:
+                    grouped = metric_df.groupby([metric_df["transaction_date"].dt.to_period(_period), _dim_col])["margin"].sum().reset_index()
+                    grouped.columns = ["period", _dim_col, "revenue_integrity"]
+                    grouped["period"] = grouped["period"].astype(str)
+                    fig = px.bar(grouped, x="period", y="revenue_integrity", color=_dim_col, title="Revenue Integrity ($)", barmode="group")
+                else:
+                    grouped = metric_df.groupby(metric_df["transaction_date"].dt.to_period(_period))["margin"].sum().reset_index()
+                    grouped.columns = ["period", "revenue_integrity"]
+                    grouped["period"] = grouped["period"].astype(str)
+                    fig = px.bar(grouped, x="period", y="revenue_integrity", title="Revenue Integrity ($)")
+                fig.update_layout(**_compact)
+                st.plotly_chart(fig, use_container_width=True)
 
-        st.subheader("Premium Mix")
-
-        _dim_options_premium_mix = ['department', 'brand', 'channel', 'product_name', 'quantity', 'units_sold', 'units_received', 'return_flag', 'exchange_flag', 'sell_through_flag', 'premium_flag']
-        _sel_dim_premium_mix = st.selectbox(
-            "Break down by", ["(none)"] + _dim_options_premium_mix,
-            key="dim_picker_premium_mix")
-
-        num_df = df[(df["premium_flag"] == 1)]
-        den_df = df[(df["transaction_flag"] == 1)]
-        den_grouped = den_df.groupby(den_df["transaction_date"].dt.to_period(_period)).size()
-        num_grouped = num_df.groupby(num_df["transaction_date"].dt.to_period(_period)).size().reindex(den_grouped.index, fill_value=0)
-        ratio_df = (num_grouped / den_grouped).fillna(0).reset_index()
-        ratio_df.columns = ["period", "premium_mix"]
-        ratio_df["period"] = ratio_df["period"].astype(str)
-
-        if ratio_df.empty:
-            st.info("No data for Premium Mix in this period.")
-        else:
-            fig = px.line(ratio_df, x="period", y="premium_mix", title="Premium Mix Over Time", markers=True)
-            st.plotly_chart(fig, use_container_width=True)
-
-        if _sel_dim_premium_mix != "(none)":
-            _dim_col = _sel_dim_premium_mix
-            _dim_label = _dim_col.replace("_", " ").title()
-            if _dim_col in num_df.columns:
-                num_dim = num_df.groupby([num_df["transaction_date"].dt.to_period(_period), _dim_col]).size().unstack(fill_value=0)
-                den_dim = den_df.groupby([den_df["transaction_date"].dt.to_period(_period), _dim_col]).size().unstack(fill_value=0)
-                ratio_dim = (num_dim / den_dim).stack().reset_index()
-                ratio_dim.columns = ["period", _dim_col, "premium_mix"]
-                ratio_dim["period"] = ratio_dim["period"].astype(str)
-                fig2 = px.line(ratio_dim, x="period", y="premium_mix", color=_dim_col, title=f"Premium Mix by {_dim_label}", markers=True)
-                st.plotly_chart(fig2, use_container_width=True)
-
-        st.divider()
-
-        st.subheader("Store Performance")
-
-        _dim_options_store_performance = ['department', 'brand', 'channel', 'product_name', 'quantity', 'units_sold', 'units_received', 'return_flag', 'exchange_flag', 'sell_through_flag', 'premium_flag']
-        _sel_dim_store_performance = st.selectbox(
-            "Break down by", ["(none)"] + _dim_options_store_performance,
-            key="dim_picker_store_performance")
-
-        metric_df = df
-        if "revenue" not in metric_df.columns:
-            st.warning("Column \"revenue\" not found in data — skipping Store Performance.")
-        else:
-            grouped = metric_df.groupby(metric_df["transaction_date"].dt.to_period(_period))["revenue"].sum().reset_index()
-            grouped.columns = ["period", "store_performance"]
-            grouped["period"] = grouped["period"].astype(str)
-
-            fig = px.bar(grouped, x="period", y="store_performance", title="Store Performance Over Time")
-            st.plotly_chart(fig, use_container_width=True)
-
-            # Dimension breakdown
-        if _sel_dim_store_performance != "(none)":
-            _dim_col = _sel_dim_store_performance
-            _dim_label = _dim_col.replace("_", " ").title()
-            if _dim_col in metric_df.columns and "revenue" in metric_df.columns:
-                dim_grouped = metric_df.groupby([metric_df["transaction_date"].dt.to_period(_period), _dim_col])["revenue"].sum().reset_index()
-                dim_grouped.columns = ["period", _dim_col, "store_performance"]
-                dim_grouped["period"] = dim_grouped["period"].astype(str)
-                fig2 = px.bar(dim_grouped, x="period", y="store_performance", color=_dim_col, title=f"Store Performance by {_dim_label}", barmode="group")
-                st.plotly_chart(fig2, use_container_width=True)
-
-
-        st.divider()
-
-        st.subheader("Revenue Integrity")
-
-        _dim_options_revenue_integrity = ['department', 'brand', 'channel', 'product_name', 'quantity', 'units_sold', 'units_received', 'return_flag', 'exchange_flag', 'sell_through_flag', 'premium_flag']
-        _sel_dim_revenue_integrity = st.selectbox(
-            "Break down by", ["(none)"] + _dim_options_revenue_integrity,
-            key="dim_picker_revenue_integrity")
-
-        metric_df = df
-        if "margin" not in metric_df.columns:
-            st.warning("Column \"margin\" not found in data — skipping Revenue Integrity.")
-        else:
-            grouped = metric_df.groupby(metric_df["transaction_date"].dt.to_period(_period))["margin"].sum().reset_index()
-            grouped.columns = ["period", "revenue_integrity"]
-            grouped["period"] = grouped["period"].astype(str)
-
-            fig = px.bar(grouped, x="period", y="revenue_integrity", title="Revenue Integrity Over Time")
-            st.plotly_chart(fig, use_container_width=True)
-
-            # Dimension breakdown
-        if _sel_dim_revenue_integrity != "(none)":
-            _dim_col = _sel_dim_revenue_integrity
-            _dim_label = _dim_col.replace("_", " ").title()
-            if _dim_col in metric_df.columns and "margin" in metric_df.columns:
-                dim_grouped = metric_df.groupby([metric_df["transaction_date"].dt.to_period(_period), _dim_col])["margin"].sum().reset_index()
-                dim_grouped.columns = ["period", _dim_col, "revenue_integrity"]
-                dim_grouped["period"] = dim_grouped["period"].astype(str)
-                fig2 = px.bar(dim_grouped, x="period", y="revenue_integrity", color=_dim_col, title=f"Revenue Integrity by {_dim_label}", barmode="group")
-                st.plotly_chart(fig2, use_container_width=True)
-
-
-        st.divider()
+        with r2c3:
+            st.markdown("**KPI Summary**")
+            st.metric("Total Rows", f"{len(df):,}")
+            if "transaction_date" in df.columns:
+                _min = df["transaction_date"].min().strftime("%Y-%m-%d")
+                _max = df["transaction_date"].max().strftime("%Y-%m-%d")
+                st.metric("Date Range", f"{_min} to {_max}")
+            if "revenue" in df.columns:
+                _total_rev = df["revenue"].sum()
+                st.metric("Total Revenue", f"${_total_rev:,.0f}")
 
     with tabs[1]:
         st.header("Data Quality Summary")
