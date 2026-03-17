@@ -10,6 +10,40 @@ import streamlit as st
 
 st.set_page_config(page_title="BayesIQ Dashboard", layout="wide")
 
+
+def _fmt_period(series):
+    """Shorten period strings for compact x-axis labels."""
+    def _shorten(s):
+        # Weekly: "2025-12-01/2025-12-07" → "Dec 1"
+        if "/" in s:
+            s = s.split("/")[0]
+        # Monthly: "2025-12" → "Dec '25"
+        parts = s.split("-")
+        if len(parts) >= 2:
+            import calendar
+            try:
+                mon = calendar.month_abbr[int(parts[1])]
+                if len(parts) == 2:
+                    return f"{mon} '{parts[0][2:]}"
+                return f"{mon} {int(parts[2])}"
+            except (ValueError, IndexError):
+                pass
+        return s
+    return series.map(_shorten)
+
+
+def _humanize_label(col_name):
+    """Convert snake_case column name to human-readable axis label."""
+    return col_name.replace("_", " ").title()
+
+
+def _polish_fig(fig, y_col, show_legend=True):
+    """Apply consistent axis and legend polish to a Plotly figure."""
+    fig.update_yaxes(title_text=_humanize_label(y_col))
+    fig.update_xaxes(title_text="", tickangle=-30)
+    if not show_legend:
+        fig.update_layout(showlegend=False)
+
 @st.cache_data
 def load_data(path):
     """Load and clean the dataset from a file path."""
@@ -263,37 +297,42 @@ def main():
 
         _compact = dict(height=260, margin=dict(l=40, r=20, t=40, b=30),
                         title_font_size=13,
-                        legend=dict(orientation="h", y=-0.25, font=dict(size=12)))
+                        legend=dict(orientation="h", y=-0.25, font=dict(size=10)))
 
         _dim_options = ["Topline", "category", "channel", "region", "store_type"]
         _sel_dim = st.radio("Dimension", _dim_options, index=0, horizontal=True, key="dim_radio")
         _dim_col = None if _sel_dim == "Topline" else _sel_dim
+        _legend_shown = False
 
         # Helper for ratio metrics in this vertical
         def _ratio_chart(num_df, den_df, metric_name, title):
+            nonlocal _legend_shown
             if _dim_col and _dim_col in num_df.columns:
                 num_dim = num_df.groupby([num_df["transaction_date"].dt.to_period(_period), _dim_col]).size().unstack(fill_value=0)
                 den_dim = den_df.groupby([den_df["transaction_date"].dt.to_period(_period), _dim_col]).size().unstack(fill_value=0)
                 ratio_dim = (num_dim / den_dim).stack().reset_index()
                 ratio_dim.columns = ["period", _dim_col, metric_name]
-                ratio_dim["period"] = ratio_dim["period"].astype(str)
+                ratio_dim["period"] = _fmt_period(ratio_dim["period"].astype(str))
                 if ratio_dim.empty:
                     st.info(f"No data for {title}.")
                 else:
                     fig = px.line(ratio_dim, x="period", y=metric_name, color=_dim_col, title=title, markers=True)
                     fig.update_layout(**_compact)
+                    _polish_fig(fig, metric_name, show_legend=not _legend_shown)
+                    _legend_shown = True
                     st.plotly_chart(fig, use_container_width=True)
             else:
                 den_grouped = den_df.groupby(den_df["transaction_date"].dt.to_period(_period)).size()
                 num_grouped = num_df.groupby(num_df["transaction_date"].dt.to_period(_period)).size().reindex(den_grouped.index, fill_value=0)
                 ratio_result = (num_grouped / den_grouped).fillna(0).reset_index()
                 ratio_result.columns = ["period", metric_name]
-                ratio_result["period"] = ratio_result["period"].astype(str)
+                ratio_result["period"] = _fmt_period(ratio_result["period"].astype(str))
                 if ratio_result.empty:
                     st.info(f"No data for {title}.")
                 else:
                     fig = px.line(ratio_result, x="period", y=metric_name, title=title, markers=True)
                     fig.update_layout(**_compact)
+                    _polish_fig(fig, metric_name)
                     st.plotly_chart(fig, use_container_width=True)
 
         # --- Row 1 ---
@@ -319,14 +358,16 @@ def main():
                 if _dim_col and _dim_col in metric_df.columns:
                     grouped = metric_df.groupby([metric_df["transaction_date"].dt.to_period(_period), _dim_col])["revenue"].sum().reset_index()
                     grouped.columns = ["period", _dim_col, "store_performance"]
-                    grouped["period"] = grouped["period"].astype(str)
+                    grouped["period"] = _fmt_period(grouped["period"].astype(str))
                     fig = px.bar(grouped, x="period", y="store_performance", color=_dim_col, title="Store Performance ($)", barmode="group")
                 else:
                     grouped = metric_df.groupby(metric_df["transaction_date"].dt.to_period(_period))["revenue"].sum().reset_index()
                     grouped.columns = ["period", "store_performance"]
-                    grouped["period"] = grouped["period"].astype(str)
+                    grouped["period"] = _fmt_period(grouped["period"].astype(str))
                     fig = px.bar(grouped, x="period", y="store_performance", title="Store Performance ($)")
                 fig.update_layout(**_compact)
+                _polish_fig(fig, "store_performance", show_legend=not _legend_shown and _dim_col is not None)
+                if _dim_col: _legend_shown = True
                 st.plotly_chart(fig, use_container_width=True)
 
         with r2c2:
@@ -337,26 +378,28 @@ def main():
                 if _dim_col and _dim_col in metric_df.columns:
                     grouped = metric_df.groupby([metric_df["transaction_date"].dt.to_period(_period), _dim_col])["margin"].sum().reset_index()
                     grouped.columns = ["period", _dim_col, "revenue_integrity"]
-                    grouped["period"] = grouped["period"].astype(str)
+                    grouped["period"] = _fmt_period(grouped["period"].astype(str))
                     fig = px.bar(grouped, x="period", y="revenue_integrity", color=_dim_col, title="Revenue Integrity ($)", barmode="group")
                 else:
                     grouped = metric_df.groupby(metric_df["transaction_date"].dt.to_period(_period))["margin"].sum().reset_index()
                     grouped.columns = ["period", "revenue_integrity"]
-                    grouped["period"] = grouped["period"].astype(str)
+                    grouped["period"] = _fmt_period(grouped["period"].astype(str))
                     fig = px.bar(grouped, x="period", y="revenue_integrity", title="Revenue Integrity ($)")
                 fig.update_layout(**_compact)
+                _polish_fig(fig, "revenue_integrity", show_legend=not _legend_shown and _dim_col is not None)
+                if _dim_col: _legend_shown = True
                 st.plotly_chart(fig, use_container_width=True)
 
         with r2c3:
-            st.markdown("**KPI Summary**")
-            st.metric("Total Rows", f"{len(df):,}")
+            st.markdown("##### KPI Summary")
+            st.markdown(f"**Total Rows:** {len(df):,}")
             if "transaction_date" in df.columns:
                 _min = df["transaction_date"].min().strftime("%Y-%m-%d")
                 _max = df["transaction_date"].max().strftime("%Y-%m-%d")
-                st.metric("Date Range", f"{_min} to {_max}")
+                st.markdown(f"**Date Range:** {_min} to {_max}")
             if "revenue" in df.columns:
                 _total_rev = df["revenue"].sum()
-                st.metric("Total Revenue", f"${_total_rev:,.0f}")
+                st.markdown(f"**Total Revenue:** ${_total_rev:,.0f}")
 
     with tabs[1]:
         st.header("Data Quality Summary")
